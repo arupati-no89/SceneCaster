@@ -15,6 +15,7 @@ from src.models.scenario import Scenario, Scene
 from src.ui.projection_window import ProjectionWindow
 from src.ui.widgets.scene_list import SceneListWidget
 from src.ui.widgets.se_pad import SePadWidget
+from src.ui.widgets.eq_panel import EqPanelWidget
 from src.ui.widgets.volume_panel import VolumePanelWidget
 
 PREVIEW_SIZE = QSize(320, 180)
@@ -128,6 +129,13 @@ class MainWindow(QMainWindow):
         self._volume_panel.ambient_changed.connect(self._audio.set_ambient_volume)
         self._volume_panel.se_changed.connect(self._audio.set_se_volume)
         layout.addWidget(self._volume_panel)
+
+        # EQ パネル
+        self._eq_panel = EqPanelWidget()
+        self._eq_panel.bass_changed.connect(self._audio.set_eq_bass)
+        self._eq_panel.mid_changed.connect(self._audio.set_eq_mid)
+        self._eq_panel.treble_changed.connect(self._audio.set_eq_treble)
+        layout.addWidget(self._eq_panel)
 
         layout.addStretch()
         return pane

@@ -5,12 +5,13 @@ from dataclasses import dataclass, field
 
 import pygame
 
-from src.models.scenario import Scene, DuckSettings
+from src.audio.eq_processor import EqSettings, load_and_apply_eq
+from src.models.scenario import Scene, DuckSettings, AudioLayer
 
-_BGM_CHANNEL_FADE_MS = 50   # pygame.mixer.music のフェード精度限界への対策
 _AMBIENT_CHANNEL = 0
+_BGM_CHANNEL     = 16          # 専用BGMチャンネル（EQ処理用）
 _SE_CHANNEL_START = 1
-_SE_CHANNEL_END = 15        # 1〜15 の 15ch を SE 用に確保
+_SE_CHANNEL_END   = 15         # 1〜15 の 15ch を SE 用に確保
 
 
 @dataclass
@@ -36,18 +37,24 @@ class AudioEngine:
     def __init__(self) -> None:
         pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=512)
         pygame.mixer.init()
-        pygame.mixer.set_num_channels(16)
+        pygame.mixer.set_num_channels(17)  # 0=ambient, 1-15=SE, 16=BGM
 
         self._vol = _VolumeState()
-        self._bgm_base_vol: float = 1.0   # ダッキング前のBGM音量
-        self._duck_count: int = 0          # 現在再生中SEの数（ダッキング管理）
+        self._bgm_base_vol: float = 1.0
+        self._duck_count: int = 0
         self._duck_settings: DuckSettings = DuckSettings()
         self._lock = threading.Lock()
 
+        self._eq = EqSettings()
+
+        self._bgm_channel  = pygame.mixer.Channel(_BGM_CHANNEL)
+        self._bgm_sound: pygame.mixer.Sound | None = None
+        self._current_bgm_layer: AudioLayer | None = None
+
         self._ambient_channel = pygame.mixer.Channel(_AMBIENT_CHANNEL)
         self._ambient_sound: pygame.mixer.Sound | None = None
+        self._current_ambient_layer: AudioLayer | None = None
 
-        # SE チャンネルプール（ラウンドロビン）
         self._se_channels = [pygame.mixer.Channel(i) for i in range(_SE_CHANNEL_START, _SE_CHANNEL_END + 1)]
         self._se_rr_index = 0
 
@@ -56,49 +63,51 @@ class AudioEngine:
     # ------------------------------------------------------------------
 
     def apply_scene(self, scene: Scene, carry_over: bool = False) -> None:
-        """シーンのオーディオ設定を反映する"""
         self._duck_settings = scene.duck_on_se
 
-        bgm_layer = next((l for l in scene.audio_layers if l.type.value == "bgm"), None)
+        bgm_layer     = next((l for l in scene.audio_layers if l.type.value == "bgm"), None)
         ambient_layer = next((l for l in scene.audio_layers if l.type.value == "ambient"), None)
 
         if not carry_over:
             self._play_bgm(bgm_layer)
             self._play_ambient(ambient_layer)
         else:
-            # carry_over: 前シーンの音声をそのまま引き継ぐ（音量だけ更新）
             if bgm_layer:
                 self._bgm_base_vol = bgm_layer.volume
-                pygame.mixer.music.set_volume(self._vol.effective_bgm() * self._bgm_base_vol)
+                self._bgm_channel.set_volume(self._vol.effective_bgm() * self._bgm_base_vol)
             if ambient_layer and self._ambient_sound:
                 self._ambient_channel.set_volume(self._vol.effective_ambient() * ambient_layer.volume)
 
-    def _play_bgm(self, layer) -> None:
+    def _play_bgm(self, layer: AudioLayer | None) -> None:
+        self._current_bgm_layer = layer
         if layer is None:
-            pygame.mixer.music.fadeout(500)
+            self._bgm_channel.fadeout(500)
+            self._bgm_sound = None
             self._bgm_base_vol = 1.0
             return
         try:
-            pygame.mixer.music.load(layer.file)
+            sound = load_and_apply_eq(layer.file, self._eq)
         except Exception:
             return
+        self._bgm_sound = sound
         self._bgm_base_vol = layer.volume
         target_vol = self._vol.effective_bgm() * self._bgm_base_vol
         if layer.fade_in_ms > 0:
-            pygame.mixer.music.set_volume(0.0)
-            pygame.mixer.music.play(-1 if layer.loop else 0)
+            self._bgm_channel.set_volume(0.0)
+            self._bgm_channel.play(sound, loops=-1 if layer.loop else 0)
             self._fade_bgm_to(target_vol, layer.fade_in_ms)
         else:
-            pygame.mixer.music.set_volume(target_vol)
-            pygame.mixer.music.play(-1 if layer.loop else 0)
+            self._bgm_channel.set_volume(target_vol)
+            self._bgm_channel.play(sound, loops=-1 if layer.loop else 0)
 
-    def _play_ambient(self, layer) -> None:
+    def _play_ambient(self, layer: AudioLayer | None) -> None:
+        self._current_ambient_layer = layer
         self._ambient_channel.stop()
         self._ambient_sound = None
         if layer is None:
             return
         try:
-            sound = pygame.mixer.Sound(layer.file)
+            sound = load_and_apply_eq(layer.file, self._eq)
         except Exception:
             return
         self._ambient_sound = sound
@@ -112,7 +121,7 @@ class AudioEngine:
 
     def play_se(self, file: str, volume: float = 1.0) -> None:
         try:
-            sound = pygame.mixer.Sound(file)
+            sound = load_and_apply_eq(file, self._eq)
         except Exception:
             return
 
@@ -136,7 +145,7 @@ class AudioEngine:
         with self._lock:
             self._duck_count += 1
         duck_vol = self._vol.effective_bgm() * self._bgm_base_vol * self._duck_settings.duck_volume
-        pygame.mixer.music.set_volume(duck_vol)
+        self._bgm_channel.set_volume(duck_vol)
 
         restore_after_ms = int(se_length_sec * 1000) + self._duck_settings.restore_ms
         timer = threading.Timer(restore_after_ms / 1000.0, self._finish_ducking)
@@ -147,25 +156,24 @@ class AudioEngine:
         with self._lock:
             self._duck_count = max(0, self._duck_count - 1)
             if self._duck_count > 0:
-                return  # まだ別の SE が再生中
+                return
         self._fade_bgm_to(self._vol.effective_bgm() * self._bgm_base_vol, self._duck_settings.restore_ms)
 
     def _fade_bgm_to(self, target: float, duration_ms: int) -> None:
-        """BGM を target 音量まで duration_ms かけてフェードする（スレッドセーフ）"""
         if duration_ms <= 0:
-            pygame.mixer.music.set_volume(target)
+            self._bgm_channel.set_volume(target)
             return
         steps = max(1, duration_ms // 20)
-        current = pygame.mixer.music.get_volume()
+        current = self._bgm_channel.get_volume()
         delta = (target - current) / steps
 
         def _run() -> None:
             vol = current
             for _ in range(steps):
                 vol = max(0.0, min(1.0, vol + delta))
-                pygame.mixer.music.set_volume(vol)
+                self._bgm_channel.set_volume(vol)
                 threading.Event().wait(0.02)
-            pygame.mixer.music.set_volume(target)
+            self._bgm_channel.set_volume(target)
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
@@ -180,7 +188,7 @@ class AudioEngine:
 
     def set_bgm_volume(self, value: float) -> None:
         self._vol.bgm = _clamp(value)
-        pygame.mixer.music.set_volume(self._vol.effective_bgm() * self._bgm_base_vol)
+        self._bgm_channel.set_volume(self._vol.effective_bgm() * self._bgm_base_vol)
 
     def set_ambient_volume(self, value: float) -> None:
         self._vol.ambient = _clamp(value)
@@ -191,16 +199,39 @@ class AudioEngine:
         self._vol.se = _clamp(value)
 
     def _apply_all_volumes(self) -> None:
-        pygame.mixer.music.set_volume(self._vol.effective_bgm() * self._bgm_base_vol)
+        self._bgm_channel.set_volume(self._vol.effective_bgm() * self._bgm_base_vol)
         if self._ambient_sound:
             self._ambient_channel.set_volume(self._vol.effective_ambient())
+
+    # ------------------------------------------------------------------
+    # EQ
+    # ------------------------------------------------------------------
+
+    def set_eq_bass(self, db: float) -> None:
+        self._eq.bass_db = _clamp_db(db)
+        self._reload_audio_with_eq()
+
+    def set_eq_mid(self, db: float) -> None:
+        self._eq.mid_db = _clamp_db(db)
+        self._reload_audio_with_eq()
+
+    def set_eq_treble(self, db: float) -> None:
+        self._eq.treble_db = _clamp_db(db)
+        self._reload_audio_with_eq()
+
+    def _reload_audio_with_eq(self) -> None:
+        """現在再生中の BGM・環境音を EQ 設定で再ロードする。"""
+        if self._current_bgm_layer is not None:
+            self._play_bgm(self._current_bgm_layer)
+        if self._current_ambient_layer is not None:
+            self._play_ambient(self._current_ambient_layer)
 
     # ------------------------------------------------------------------
     # 停止
     # ------------------------------------------------------------------
 
     def stop_all(self) -> None:
-        pygame.mixer.music.stop()
+        self._bgm_channel.stop()
         self._ambient_channel.stop()
         for ch in self._se_channels:
             ch.stop()
@@ -213,3 +244,7 @@ class AudioEngine:
 
 def _clamp(v: float) -> float:
     return max(0.0, min(1.0, v))
+
+
+def _clamp_db(v: float) -> float:
+    return max(-12.0, min(12.0, v))
