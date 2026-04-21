@@ -1,0 +1,130 @@
+{
+  "schema_version": "1.0",
+  "title": "チュートリアルシナリオ",
+  "author": "SceneCaster",
+  "description": "動作確認用のサンプルシナリオです。実際の音源・画像は assets/ に配置してください。",
+  "default_fade_ms": 1500,
+  "shared_se": [
+    {"id": "door_open",  "label": "扉を開ける", "file": "assets/audio/se_door.wav",   "volume": 0.8},
+    {"id": "scream",     "label": "悲鳴",       "file": "assets/audio/se_scream.wav", "volume": 1.0},
+    {"id": "clock_tick", "label": "時計",        "file": "assets/audio/se_clock.wav",  "volume": 0.6}
+  ],
+  "scenes": [
+    {
+      "scene_id": "01_opening",
+      "title": "プロローグ",
+      "image": "assets/images/opening.jpg",
+      "video": null,
+      "fade_ms": 2000,
+      "audio_layers": [
+        {
+          "type": "bgm",
+          "file": "assets/audio/bgm_opening.ogg",
+          "volume": 0.7,
+          "loop": true,
+          "fade_in_ms": 3000
+        }
+      ],
+      "duck_on_se": {
+        "enabled": true,
+        "duck_volume": 0.3,
+        "restore_ms": 500
+      },
+      "carry_over_audio": false,
+      "scene_specific_se": []
+    },
+    {
+      "scene_id": "02_briefing",
+      "title": "事件の概要",
+      "image": "assets/images/briefing.jpg",
+      "video": null,
+      "fade_ms": 1500,
+      "audio_layers": [
+        {
+          "type": "bgm",
+          "file": "assets/audio/bgm_opening.ogg",
+          "volume": 0.5,
+          "loop": true,
+          "fade_in_ms": 0
+        }
+      ],
+      "duck_on_se": {
+        "enabled": true,
+        "duck_volume": 0.3,
+        "restore_ms": 500
+      },
+      "carry_over_audio": true,
+      "scene_specific_se": []
+    },
+    {
+      "scene_id": "03_investigation",
+      "title": "証拠集めの時間",
+      "image": "assets/images/library.jpg",
+      "video": null,
+      "fade_ms": 1500,
+      "audio_layers": [
+        {
+          "type": "bgm",
+          "file": "assets/audio/bgm_tension.ogg",
+          "volume": 0.6,
+          "loop": true,
+          "fade_in_ms": 2000
+        },
+        {
+          "type": "ambient",
+          "file": "assets/audio/ambient_rain.ogg",
+          "volume": 0.3,
+          "loop": true,
+          "fade_in_ms": 2000
+        }
+      ],
+      "duck_on_se": {
+        "enabled": true,
+        "duck_volume": 0.3,
+        "restore_ms": 500
+      },
+      "carry_over_audio": false,
+      "scene_specific_se": [
+        {"id": "clue_found", "label": "手がかり発見", "file": "assets/audio/se_chime.wav", "volume": 0.9}
+      ]
+    },
+    {
+      "scene_id": "04_confrontation",
+      "title": "対決",
+      "image": "assets/images/confrontation.jpg",
+      "video": null,
+      "fade_ms": 800,
+      "audio_layers": [
+        {
+          "type": "bgm",
+          "file": "assets/audio/bgm_climax.ogg",
+          "volume": 0.8,
+          "loop": true,
+          "fade_in_ms": 500
+        }
+      ],
+      "duck_on_se": {
+        "enabled": true,
+        "duck_volume": 0.2,
+        "restore_ms": 800
+      },
+      "carry_over_audio": false,
+      "scene_specific_se": []
+    },
+    {
+      "scene_id": "05_ending",
+      "title": "エンディング",
+      "image": null,
+      "video": "assets/videos/ending.mp4",
+      "fade_ms": 3000,
+      "audio_layers": [],
+      "duck_on_se": {
+        "enabled": false,
+        "duck_volume": 0.3,
+        "restore_ms": 500
+      },
+      "carry_over_audio": false,
+      "scene_specific_se": []
+    }
+  ]
+}
