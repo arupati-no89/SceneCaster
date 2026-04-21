@@ -225,43 +225,45 @@ MyScenario/
 
 ## 6. 実装順序（推奨）
 
-### Phase 1: データ構造とファイルI/O
-1. `scenario.json`スキーマ確定（Pydanticモデルで型定義推奨）
-2. サンプルシナリオデータの作成
-3. JSON読み込み・バリデーション
+> **凡例：** ✅ 完了　🔧 実装中　📋 未着手
 
-### Phase 2: 基本GUI
-4. PySide6でMainWindow雛形
-5. ProjectionWindow雛形＋物理ディスプレイ選択
-6. フルスクリーン／ウィンドウモード切替
-7. シーンリスト表示・選択
+### Phase 1: データ構造とファイルI/O ✅ 完了
+1. ✅ `scenario.json`スキーマ確定（Pydanticモデルで型定義推奨）→ `src/models/scenario.py`
+2. ✅ サンプルシナリオデータの作成 → `sample_scenarios/tutorial/scenario.json`
+3. ✅ JSON読み込み・バリデーション → `src/models/loader.py`
 
-### Phase 3: ビジュアル演出
-8. 画像表示（`QLabel` + `QPixmap`）
-9. クロスフェード実装（`QGraphicsOpacityEffect` + `QPropertyAnimation`）
-10. ブラックアウト機能
+### Phase 2: 基本GUI ✅ 完了
+4. ✅ PySide6でMainWindow雛形 → `src/ui/main_window.py`
+5. ✅ ProjectionWindow雛形＋物理ディスプレイ選択 → `src/ui/projection_window.py`
+6. ✅ フルスクリーン／ウィンドウモード切替
+7. ✅ シーンリスト表示・選択 → `src/ui/widgets/scene_list.py`
 
-### Phase 4: オーディオエンジン
-11. pygame.mixer初期化＆マルチチャンネル構成
-12. BGMレーン（ループ・フェード）
-13. 環境音レーン
-14. SEワンショット再生
-15. BGM自動ダッキング実装
+### Phase 3: ビジュアル演出 ✅ 完了
+8. ✅ 画像表示（`QLabel` + `QPixmap`）
+9. ✅ クロスフェード実装（`QGraphicsOpacityEffect` + `QPropertyAnimation`）→ `src/utils/fade.py`
+10. ✅ ブラックアウト機能（フェードイン／アウト付き）
 
-### Phase 5: リアルタイム操作
-16. 音量スライダー実装（マスター／BGM／環境音／SE）
-17. SEワンショットボタンパッド
-18. キーボードショートカット対応
-19. Bluetoothプレゼンター対応確認（ELA-FP1実機テスト）
+### Phase 4: オーディオエンジン ✅ 完了
+11. ✅ pygame.mixer初期化＆マルチチャンネル構成 → `src/audio/engine.py`
+12. ✅ BGMレーン（ループ・フェード）
+13. ✅ 環境音レーン
+14. ✅ SEワンショット再生
+15. ✅ BGM自動ダッキング実装（カウンタ方式で複数SE重複対応）
 
-### Phase 6: 動画対応（オプション）
-20. python-vlc統合
-21. 動画クロスフェード
+### Phase 5: リアルタイム操作 ✅ 完了
+16. ✅ 音量スライダー実装（マスター／BGM／環境音／SE）→ `src/ui/widgets/volume_panel.py`
+17. ✅ SEワンショットボタンパッド（共通SE・シーン固有SE色分け）→ `src/ui/widgets/se_pad.py`
+18. ✅ キーボードショートカット対応（←→ / PageUp/Down / B / F）
+19. 📋 Bluetoothプレゼンター対応確認（ELA-FP1実機テスト）→ `src/input/presenter.py` 実装済み・実機検証待ち
 
-### Phase 7: 仕上げ
-22. シナリオ読込UI
-23. エラーハンドリング
-24. PyInstallerでexe化
+### Phase 6: 動画対応（オプション）📋 未着手
+20. 📋 python-vlc統合
+21. 📋 動画クロスフェード
+
+### Phase 7: 仕上げ 📋 未着手
+22. ✅ シナリオ読込UI（フォルダ選択ダイアログ実装済み）
+23. 📋 エラーハンドリング（アセット不在・JSON不正の通知強化）
+24. 📋 PyInstallerでexe化
 
 ---
 
