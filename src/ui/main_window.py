@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from src.models.scenario import Scenario, Scene
 from src.models.loader import load_scenario
+from src.audio.engine import AudioEngine
 from src.ui.projection_window import ProjectionWindow
 from src.ui.widgets.scene_list import SceneListWidget
 
@@ -27,6 +28,7 @@ class MainWindow(QMainWindow):
         self._scenario: Scenario | None = None
         self._current_index: int = -1
         self._projection = ProjectionWindow()
+        self._audio = AudioEngine()
 
         self._build_ui()
         self._setup_shortcuts()
@@ -161,11 +163,13 @@ class MainWindow(QMainWindow):
     def _on_scene_selected(self, index: int) -> None:
         if self._scenario is None or index < 0:
             return
+        prev_index = self._current_index
         self._current_index = index
         scene = self._scenario.scenes[index]
         self._lbl_scene_title.setText(f"[{index + 1}/{len(self._scenario.scenes)}] {scene.title}")
         self._update_preview(scene)
         self._projection.transition_to(scene.image, scene.fade_ms)
+        self._audio.apply_scene(scene, carry_over=scene.carry_over_audio)
 
     def _go_next(self) -> None:
         if self._scenario is None:
@@ -210,6 +214,11 @@ class MainWindow(QMainWindow):
         else:
             self._projection.setGeometry(screen.geometry())
             self._projection.show()
+
+    def closeEvent(self, event):  # noqa: N802
+        self._audio.quit()
+        self._projection.close()
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # プレビュー更新
