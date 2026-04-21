@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QPixmap, QScreen
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Signal
+from PySide6.QtGui import QPixmap, QScreen, QKeyEvent
 from PySide6.QtWidgets import QWidget, QLabel, QGraphicsOpacityEffect
 
 from src.utils.fade import make_opacity_effect, fade_animation
@@ -58,6 +58,8 @@ class _ImageLayer(QLabel):
 
 class ProjectionWindow(QWidget):
     """プロジェクター／外部ディスプレイへの投影ウィンドウ"""
+
+    key_pressed = Signal(QKeyEvent)   # GM操作ウィンドウへ転送するためのシグナル
 
     def __init__(self) -> None:
         super().__init__()
@@ -182,6 +184,9 @@ class ProjectionWindow(QWidget):
         self._resize_layers()
         if self._blackout:
             self._blackout_overlay.setGeometry(self.rect())
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        self.key_pressed.emit(event)
 
     def _resize_layers(self) -> None:
         for layer in (self._layer_a, self._layer_b):
