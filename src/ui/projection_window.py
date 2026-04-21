@@ -1,39 +1,59 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QPixmap, QColor, QPainter, QScreen
-from PySide6.QtWidgets import QWidget, QLabel, QStackedLayout, QApplication
+from PySide6.QtGui import QPixmap, QScreen
+from PySide6.QtWidgets import QWidget, QLabel, QGraphicsOpacityEffect
+
+from src.utils.fade import make_opacity_effect, fade_animation
+
+_BLACKOUT_FADE_MS = 300
 
 
 class _ImageLayer(QLabel):
-    """単一画像を表示する透過可能レイヤー"""
+    """画像を1枚表示する透過可能レイヤー"""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setStyleSheet("background: black;")
-        self._pixmap: QPixmap | None = None
+        self._pixmap_src: QPixmap | None = None
+        self._effect = make_opacity_effect(self)
+
+    # ------------------------------------------------------------------
+    # 不透明度プロパティ（QPropertyAnimation のターゲットは effect）
+    # ------------------------------------------------------------------
+
+    def set_opacity(self, value: float) -> None:
+        self._effect.setOpacity(value)
+
+    def get_opacity(self) -> float:
+        return self._effect.opacity()
+
+    # ------------------------------------------------------------------
 
     def set_image(self, path: str | None) -> None:
         if path is None:
-            self._pixmap = None
-            self.setPixmap(QPixmap())
+            self._pixmap_src = None
+            super().setPixmap(QPixmap())
         else:
-            self._pixmap = QPixmap(path)
-            self._scale_to_fit()
+            px = QPixmap(path)
+            self._pixmap_src = px if not px.isNull() else None
+            self._render()
 
     def resizeEvent(self, event):  # noqa: N802
         super().resizeEvent(event)
-        self._scale_to_fit()
+        self._render()
 
-    def _scale_to_fit(self) -> None:
-        if self._pixmap and not self._pixmap.isNull():
-            scaled = self._pixmap.scaled(
+    def _render(self) -> None:
+        if self._pixmap_src and not self._pixmap_src.isNull():
+            scaled = self._pixmap_src.scaled(
                 self.size(),
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
             super().setPixmap(scaled)
+        else:
+            super().setPixmap(QPixmap())
 
 
 class ProjectionWindow(QWidget):
@@ -48,22 +68,25 @@ class ProjectionWindow(QWidget):
         self._is_fullscreen = False
         self._blackout = False
 
-        # 2枚のレイヤーをクロスフェードに使う
+        # 2枚のレイヤーでクロスフェード
         self._layer_a = _ImageLayer(self)
         self._layer_b = _ImageLayer(self)
-        self._layer_b.setWindowOpacity(0.0)
-
-        # どちらが前面か
-        self._front: _ImageLayer = self._layer_a
-        self._back: _ImageLayer = self._layer_b
+        self._layer_a.set_opacity(1.0)
+        self._layer_b.set_opacity(0.0)
+        self._front: _ImageLayer = self._layer_a   # 現在表示中
+        self._back: _ImageLayer = self._layer_b    # 次の画像を準備
 
         # ブラックアウト用オーバーレイ
         self._blackout_overlay = QWidget(self)
         self._blackout_overlay.setStyleSheet("background: black;")
+        self._bo_effect = make_opacity_effect(self._blackout_overlay)
+        self._bo_effect.setOpacity(0.0)
         self._blackout_overlay.hide()
 
-        # フェードアニメーション
-        self._anim: QPropertyAnimation | None = None
+        # アニメーション参照（GC防止）
+        self._cross_anim_in: QPropertyAnimation | None = None
+        self._cross_anim_out: QPropertyAnimation | None = None
+        self._bo_anim: QPropertyAnimation | None = None
 
         self._resize_layers()
 
@@ -72,7 +95,6 @@ class ProjectionWindow(QWidget):
     # ------------------------------------------------------------------
 
     def set_screen(self, screen: QScreen) -> None:
-        """投影先の物理ディスプレイを指定する"""
         self.setGeometry(screen.geometry())
 
     def show_fullscreen_on(self, screen: QScreen) -> None:
@@ -90,12 +112,23 @@ class ProjectionWindow(QWidget):
 
     def set_blackout(self, enabled: bool) -> None:
         self._blackout = enabled
+        if self._bo_anim:
+            self._bo_anim.stop()
+
         if enabled:
             self._blackout_overlay.setGeometry(self.rect())
             self._blackout_overlay.raise_()
             self._blackout_overlay.show()
+            self._bo_anim = fade_animation(
+                self._bo_effect, b"opacity",
+                self._bo_effect.opacity(), 1.0, _BLACKOUT_FADE_MS,
+            )
         else:
-            self._blackout_overlay.hide()
+            self._bo_anim = fade_animation(
+                self._bo_effect, b"opacity",
+                self._bo_effect.opacity(), 0.0, _BLACKOUT_FADE_MS,
+            )
+            self._bo_anim.finished.connect(self._blackout_overlay.hide)
 
     def toggle_blackout(self) -> None:
         self.set_blackout(not self._blackout)
@@ -105,36 +138,40 @@ class ProjectionWindow(QWidget):
         return self._blackout
 
     def transition_to(self, image_path: str | None, fade_ms: int = 1500) -> None:
-        """画像をクロスフェードで切り替える"""
-        # 停止中のアニメーションがあれば終了
-        if self._anim and self._anim.state() == QPropertyAnimation.State.Running:
-            self._anim.stop()
+        """クロスフェードで画像を切り替える"""
+        # 進行中のクロスフェードを即完了させる
+        if self._cross_anim_in and self._cross_anim_in.state() == QPropertyAnimation.State.Running:
+            self._cross_anim_in.stop()
+            self._cross_anim_out.stop()
+            self._front.set_opacity(0.0)
+            self._back.set_opacity(1.0)
+            self._swap_layers()
 
-        # back レイヤーに新画像をセット（現時点では透明）
+        # back に新画像を配置（透明）
         self._back.set_image(image_path)
-        self._back.setWindowOpacity(0.0)
+        self._back.set_opacity(0.0)
         self._back.raise_()
 
         if fade_ms <= 0:
-            self._back.setWindowOpacity(1.0)
-            self._front.setWindowOpacity(0.0)
+            self._back.set_opacity(1.0)
+            self._front.set_opacity(0.0)
             self._swap_layers()
             return
 
-        self._anim = QPropertyAnimation(self._back, b"windowOpacity")
-        self._anim.setDuration(fade_ms)
-        self._anim.setStartValue(0.0)
-        self._anim.setEndValue(1.0)
-        self._anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
-        self._anim.finished.connect(self._on_fade_done)
-        self._anim.start()
+        # back をフェードイン、front をフェードアウト（同時進行）
+        self._cross_anim_in = fade_animation(
+            self._back._effect, b"opacity", 0.0, 1.0, fade_ms,
+        )
+        self._cross_anim_out = fade_animation(
+            self._front._effect, b"opacity", 1.0, 0.0, fade_ms,
+        )
+        self._cross_anim_in.finished.connect(self._on_crossfade_done)
 
     # ------------------------------------------------------------------
     # 内部処理
     # ------------------------------------------------------------------
 
-    def _on_fade_done(self) -> None:
-        self._front.setWindowOpacity(0.0)
+    def _on_crossfade_done(self) -> None:
         self._swap_layers()
 
     def _swap_layers(self) -> None:
